@@ -3,6 +3,7 @@ package dashboard
 import (
 	"net/http"
 
+	"github.com/aadithyaa9/finance-dashboard/internal/middleware"
 	"github.com/aadithyaa9/finance-dashboard/internal/response"
 )
 
@@ -14,10 +15,9 @@ func NewHandler(svc *Service) *Handler {
 	return &Handler{svc: svc}
 }
 
-// Summary godoc
-// GET /api/dashboard/summary
 func (h *Handler) Summary(w http.ResponseWriter, r *http.Request) {
-	data, err := h.svc.GetSummary()
+	claims := middleware.ClaimsFromContext(r.Context())
+	data, err := h.svc.GetSummary(claims.UserID)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, "failed to fetch summary")
 		return
@@ -25,10 +25,9 @@ func (h *Handler) Summary(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusOK, data)
 }
 
-// ByCategory godoc
-// GET /api/dashboard/by-category
 func (h *Handler) ByCategory(w http.ResponseWriter, r *http.Request) {
-	data, err := h.svc.GetByCategory()
+	claims := middleware.ClaimsFromContext(r.Context())
+	data, err := h.svc.GetByCategory(claims.UserID)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, "failed to fetch category totals")
 		return
@@ -36,10 +35,9 @@ func (h *Handler) ByCategory(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusOK, data)
 }
 
-// Trends godoc
-// GET /api/dashboard/trends
 func (h *Handler) Trends(w http.ResponseWriter, r *http.Request) {
-	data, err := h.svc.GetMonthlyTrends()
+	claims := middleware.ClaimsFromContext(r.Context())
+	data, err := h.svc.GetMonthlyTrends(claims.UserID)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, "failed to fetch trends")
 		return
@@ -47,10 +45,9 @@ func (h *Handler) Trends(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusOK, data)
 }
 
-// Recent godoc
-// GET /api/dashboard/recent
 func (h *Handler) Recent(w http.ResponseWriter, r *http.Request) {
-	data, err := h.svc.GetRecent()
+	claims := middleware.ClaimsFromContext(r.Context())
+	data, err := h.svc.GetRecent(claims.UserID)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, "failed to fetch recent records")
 		return
