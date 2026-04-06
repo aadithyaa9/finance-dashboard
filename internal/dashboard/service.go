@@ -42,8 +42,7 @@ func NewService(db *sqlx.DB) *Service {
 	return &Service{db: db}
 }
 
-// GetSummary returns total income, total expenses, and net balance.
-func (s *Service) GetSummary() (*Summary, error) {
+func (s *Service) GetSummary(userID string) (*Summary, error) {
 	summary := &Summary{}
 	err := s.db.QueryRowx(fmt.Sprintf(`
 		SELECT
@@ -51,29 +50,28 @@ func (s *Service) GetSummary() (*Summary, error) {
 			COALESCE(SUM(CASE WHEN type = '%s' THEN amount ELSE 0 END), 0)          AS total_expenses,
 			COALESCE(SUM(CASE WHEN type = '%s' THEN amount ELSE -amount END), 0)    AS net_balance
 		FROM financial_records
-		WHERE deleted_at IS NULL`,
+		WHERE deleted_at IS NULL AND user_id = $1`,
 		records.RecordTypeIncome,
 		records.RecordTypeExpense,
 		records.RecordTypeIncome,
-	)).StructScan(summary)
+	), userID).StructScan(summary)
 	return summary, err
 }
 
-// GetByCategory returns totals grouped by category and type.
-func (s *Service) GetByCategory() ([]CategoryTotal, error) {
+func (s *Service) GetByCategory(userID string) ([]CategoryTotal, error) {
 	var rows []CategoryTotal
 	err := s.db.Select(&rows, `
 		SELECT category, type, COALESCE(SUM(amount), 0) AS total
 		FROM financial_records
-		WHERE deleted_at IS NULL
+		WHERE deleted_at IS NULL AND user_id = $1
 		GROUP BY category, type
 		ORDER BY total DESC`,
+		userID,
 	)
 	return rows, err
 }
 
-// GetMonthlyTrends returns per-month income and expense totals for the last 12 months.
-func (s *Service) GetMonthlyTrends() ([]MonthlyTrend, error) {
+func (s *Service) GetMonthlyTrends(userID string) ([]MonthlyTrend, error) {
 	var rows []MonthlyTrend
 	err := s.db.Select(&rows, `
 		SELECT
@@ -82,22 +80,24 @@ func (s *Service) GetMonthlyTrends() ([]MonthlyTrend, error) {
 			COALESCE(SUM(amount), 0) AS total
 		FROM financial_records
 		WHERE deleted_at IS NULL
+		  AND user_id = $1
 		  AND date >= NOW() - INTERVAL '12 months'
 		GROUP BY month, type
 		ORDER BY month DESC, type`,
+		userID,
 	)
 	return rows, err
 }
 
-// GetRecent returns the 10 most recent records.
-func (s *Service) GetRecent() ([]RecentRecord, error) {
+func (s *Service) GetRecent(userID string) ([]RecentRecord, error) {
 	var rows []RecentRecord
 	err := s.db.Select(&rows, `
 		SELECT id, amount, type, category, TO_CHAR(date, 'YYYY-MM-DD') AS date, COALESCE(notes, '') AS notes
 		FROM financial_records
-		WHERE deleted_at IS NULL
+		WHERE deleted_at IS NULL AND user_id = $1
 		ORDER BY date DESC, created_at DESC
 		LIMIT 10`,
+		userID,
 	)
 	return rows, err
 }
