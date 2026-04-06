@@ -2,6 +2,7 @@ package records
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -71,7 +72,8 @@ func (s *Store) List(f Filter) ([]Record, int, error) {
 		return nil, 0, err
 	}
 
-	// paginated results
+	// LIMIT/OFFSET is used here for simplicity. See Filter for a note on
+	// keyset pagination as a future scaling improvement.
 	offset := (f.Page - 1) * f.Limit
 	query := fmt.Sprintf(
 		"SELECT * FROM financial_records %s ORDER BY date DESC, created_at DESC LIMIT $%d OFFSET $%d",
@@ -90,42 +92,66 @@ func (s *Store) GetByID(id string) (*Record, error) {
 	return r, err
 }
 
+// Update builds a dynamic UPDATE statement containing only the fields present
+// in the payload. This avoids the read-modify-write pattern that causes lost
+// updates when two requests modify the same record concurrently.
 func (s *Store) Update(id string, input UpdateInput) (*Record, error) {
-	existing, err := s.GetByID(id)
-	if err != nil {
-		return nil, err
-	}
+	setClauses := []string{}
+	args := []interface{}{}
+	i := 1
 
-	// Apply partial updates — only overwrite fields that were provided
 	if input.Amount != nil {
-		existing.Amount = *input.Amount
+		setClauses = append(setClauses, fmt.Sprintf("amount = $%d", i))
+		args = append(args, *input.Amount)
+		i++
 	}
 	if input.Type != nil {
-		existing.Type = *input.Type
+		setClauses = append(setClauses, fmt.Sprintf("type = $%d", i))
+		args = append(args, *input.Type)
+		i++
 	}
 	if input.Category != nil {
-		existing.Category = *input.Category
+		setClauses = append(setClauses, fmt.Sprintf("category = $%d", i))
+		args = append(args, *input.Category)
+		i++
 	}
 	if input.Date != nil {
 		d, err := time.Parse("2006-01-02", *input.Date)
 		if err != nil {
 			return nil, fmt.Errorf("invalid date format, expected YYYY-MM-DD")
 		}
-		existing.Date = d
+		setClauses = append(setClauses, fmt.Sprintf("date = $%d", i))
+		args = append(args, d)
+		i++
 	}
 	if input.Notes != nil {
-		existing.Notes = *input.Notes
+		setClauses = append(setClauses, fmt.Sprintf("notes = $%d", i))
+		args = append(args, *input.Notes)
+		i++
 	}
 
+	if len(setClauses) == 0 {
+		return nil, fmt.Errorf("no fields provided to update")
+	}
+
+	// updated_at is always refreshed
+	setClauses = append(setClauses, "updated_at = NOW()")
+
+	// id is the final argument
+	args = append(args, id)
+
+	query := fmt.Sprintf(
+		"UPDATE financial_records SET %s WHERE id = $%d AND deleted_at IS NULL RETURNING *",
+		strings.Join(setClauses, ", "),
+		i,
+	)
+
 	r := &Record{}
-	err = s.db.QueryRowx(`
-		UPDATE financial_records
-		SET amount = $1, type = $2, category = $3, date = $4, notes = $5, updated_at = NOW()
-		WHERE id = $6 AND deleted_at IS NULL
-		RETURNING *`,
-		existing.Amount, existing.Type, existing.Category, existing.Date, existing.Notes, id,
-	).StructScan(r)
-	return r, err
+	err := s.db.QueryRowx(query, args...).StructScan(r)
+	if err != nil {
+		return nil, fmt.Errorf("record not found or already deleted")
+	}
+	return r, nil
 }
 
 func (s *Store) SoftDelete(id string) error {
