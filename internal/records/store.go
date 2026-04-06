@@ -32,7 +32,7 @@ func (s *Store) Create(userID string, input CreateInput) (*Record, error) {
 	return r, err
 }
 
-func (s *Store) List(f Filter) ([]Record, int, error) {
+func (s *Store) List(userID string, f Filter) ([]Record, int, error) {
 	if f.Page < 1 {
 		f.Page = 1
 	}
@@ -40,9 +40,10 @@ func (s *Store) List(f Filter) ([]Record, int, error) {
 		f.Limit = 20
 	}
 
-	where := "WHERE deleted_at IS NULL"
-	args := []interface{}{}
-	i := 1
+	// ALWAYS scope to the requesting user
+	where := "WHERE deleted_at IS NULL AND user_id = $1"
+	args := []interface{}{userID}
+	i := 2
 
 	if f.Type != "" {
 		where += fmt.Sprintf(" AND type = $%d", i)
@@ -72,8 +73,6 @@ func (s *Store) List(f Filter) ([]Record, int, error) {
 		return nil, 0, err
 	}
 
-	// LIMIT/OFFSET is used here for simplicity. See Filter for a note on
-	// keyset pagination as a future scaling improvement.
 	offset := (f.Page - 1) * f.Limit
 	query := fmt.Sprintf(
 		"SELECT * FROM financial_records %s ORDER BY date DESC, created_at DESC LIMIT $%d OFFSET $%d",
@@ -86,16 +85,13 @@ func (s *Store) List(f Filter) ([]Record, int, error) {
 	return list, total, err
 }
 
-func (s *Store) GetByID(id string) (*Record, error) {
+func (s *Store) GetByID(userID string, id string) (*Record, error) {
 	r := &Record{}
-	err := s.db.Get(r, `SELECT * FROM financial_records WHERE id = $1 AND deleted_at IS NULL`, id)
+	err := s.db.Get(r, `SELECT * FROM financial_records WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`, id, userID)
 	return r, err
 }
 
-// Update builds a dynamic UPDATE statement containing only the fields present
-// in the payload. This avoids the read-modify-write pattern that causes lost
-// updates when two requests modify the same record concurrently.
-func (s *Store) Update(id string, input UpdateInput) (*Record, error) {
+func (s *Store) Update(userID string, id string, input UpdateInput) (*Record, error) {
 	setClauses := []string{}
 	args := []interface{}{}
 	i := 1
@@ -134,37 +130,36 @@ func (s *Store) Update(id string, input UpdateInput) (*Record, error) {
 		return nil, fmt.Errorf("no fields provided to update")
 	}
 
-	// updated_at is always refreshed
 	setClauses = append(setClauses, "updated_at = NOW()")
 
-	// id is the final argument
-	args = append(args, id)
+	// Add id and userID to args
+	args = append(args, id, userID)
 
 	query := fmt.Sprintf(
-		"UPDATE financial_records SET %s WHERE id = $%d AND deleted_at IS NULL RETURNING *",
+		"UPDATE financial_records SET %s WHERE id = $%d AND user_id = $%d AND deleted_at IS NULL RETURNING *",
 		strings.Join(setClauses, ", "),
-		i,
+		i, i+1,
 	)
 
 	r := &Record{}
 	err := s.db.QueryRowx(query, args...).StructScan(r)
 	if err != nil {
-		return nil, fmt.Errorf("record not found or already deleted")
+		return nil, fmt.Errorf("record not found, already deleted, or unauthorized")
 	}
 	return r, nil
 }
 
-func (s *Store) SoftDelete(id string) error {
+func (s *Store) SoftDelete(userID string, id string) error {
 	res, err := s.db.Exec(
-		`UPDATE financial_records SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL`,
-		id,
+		`UPDATE financial_records SET deleted_at = NOW() WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`,
+		id, userID,
 	)
 	if err != nil {
 		return err
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
-		return fmt.Errorf("record not found")
+		return fmt.Errorf("record not found or unauthorized")
 	}
 	return nil
 }
