@@ -22,9 +22,8 @@ func NewHandler(store *Store) *Handler {
 	return &Handler{store: store}
 }
 
-// List godoc
-// GET /api/records?type=income&category=food&from=2024-01-01&to=2024-12-31&page=1&limit=20
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.ClaimsFromContext(r.Context())
 	q := r.URL.Query()
 	page, _ := strconv.Atoi(q.Get("page"))
 	limit, _ := strconv.Atoi(q.Get("limit"))
@@ -38,7 +37,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		Limit:    limit,
 	}
 
-	list, total, err := h.store.List(filter)
+	list, total, err := h.store.List(claims.UserID, filter)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, "failed to fetch records")
 		return
@@ -52,8 +51,6 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Create godoc
-// POST /api/records
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	claims := middleware.ClaimsFromContext(r.Context())
 
@@ -76,11 +73,11 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusCreated, rec)
 }
 
-// GetByID godoc
-// GET /api/records/{id}
 func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.ClaimsFromContext(r.Context())
 	id := chi.URLParam(r, "id")
-	rec, err := h.store.GetByID(id)
+	
+	rec, err := h.store.GetByID(claims.UserID, id)
 	if err != nil {
 		response.Error(w, http.StatusNotFound, "record not found")
 		return
@@ -88,9 +85,8 @@ func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusOK, rec)
 }
 
-// Update godoc
-// PUT /api/records/{id}
 func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.ClaimsFromContext(r.Context())
 	id := chi.URLParam(r, "id")
 
 	var input UpdateInput
@@ -103,7 +99,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rec, err := h.store.Update(id, input)
+	rec, err := h.store.Update(claims.UserID, id, input)
 	if err != nil {
 		response.Error(w, http.StatusBadRequest, err.Error())
 		return
@@ -112,11 +108,11 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusOK, rec)
 }
 
-// Delete godoc
-// DELETE /api/records/{id}
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.ClaimsFromContext(r.Context())
 	id := chi.URLParam(r, "id")
-	if err := h.store.SoftDelete(id); err != nil {
+	
+	if err := h.store.SoftDelete(claims.UserID, id); err != nil {
 		response.Error(w, http.StatusNotFound, err.Error())
 		return
 	}
