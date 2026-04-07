@@ -1,50 +1,130 @@
-# finance dashboard api
+# Finance Dashboard API
 
-so this is a backend service for a role-based finance dashboard. handles user auth, permissions, and tracks income/expenses. 
+A robust backend service for a role-based financial management system. This API handles user authentication, multi-tier permissions, and tracks financial income and expenses with detailed analytics.
 
-built it primarily with go, postgres, and chi. 
+## Tech Stack
 
-## the stack
-* **go 1.22** * **chi** - for routing. nice and lightweight, didn't want a massive framework.
-* **postgresql** - using the numeric type for money stuff so we don't get floating point weirdness.
-* **sqlx** - kept it simple. no ORM magic like gorm, just writing actual sql queries. 
-* **jwt** - standard stateless auth.
-
-## how to run this thing
-
-you need go and postgres installed locally.
-
-1. clone it and set up the env file:
-
-   ```bash
-   cp .env.example .env
-   ```
-2. set up the database. just run the migration script:
+- **Language**: Go 1.26
     
-    ```bash
+- **Router**: Chi v5 (lightweight and idiomatic)
+    
+- **Database**: PostgreSQL (using `sqlx` for performance and `pgcrypto` for UUIDs)
+    
+- **Auth**: JWT (Stateless authentication)
+    
+- **Validation**: Go-Playground Validator v10
+    
+
+---
+
+## Response Format
+
+All API responses follow a consistent JSON envelope:
+
+JSON
+
+```
+{
+  "success": true,
+  "data": { ... },     // Present on successful GET/POST
+  "message": "...",    // Present on successful commands
+  "error": "..."       // Present on failure
+}
+```
+
+---
+
+## API Endpoints
+
+### 1. Authentication (Public)
+
+|**Method**|**Endpoint**|**Description**|
+|---|---|---|
+|`POST`|`/api/auth/register`|Create a new account.|
+|`POST`|`/api/auth/login`|Authenticate and receive a JWT.|
+
+**Registration Payload:**
+
+- `role`: Optional. Defaults to `viewer`. Accepted: `viewer`, `analyst`, `admin`.
+    
+
+---
+
+### 2. Financial Records (Protected)
+
+Requires a valid `Authorization: Bearer <token>` header.
+
+|**Method**|**Endpoint**|**Min. Role**|**Description**|
+|---|---|---|---|
+|`GET`|`/api/records`|Viewer|List all records with filtering/pagination.|
+|`GET`|`/api/records/{id}`|Viewer|Fetch details for a specific record.|
+|`POST`|`/api/records`|Analyst|Create a new financial entry.|
+|`PUT`|`/api/records/{id}`|Analyst|Update an existing record.|
+|`DELETE`|`/api/records/{id}`|Admin|Soft-delete a record.|
+
+**Filtering `/api/records`:**
+
+Query parameters include `page`, `limit`, `type` (income/expense), `category`, `from` (YYYY-MM-DD), and `to`.
+
+---
+
+### 3. Dashboard Analytics (Protected)
+
+Provides aggregated data for UI visualizations.
+
+|**Method**|**Endpoint**|**Description**|
+|---|---|---|
+|`GET`|`/api/dashboard/summary`|Total income, expenses, and net balance.|
+|`GET`|`/api/dashboard/by-category`|Spending/income totals grouped by category.|
+|`GET`|`/api/dashboard/trends`|Monthly totals for the last 12 months.|
+|`GET`|`/api/dashboard/recent`|The 10 most recent transactions.|
+
+---
+
+### 4. User Management (Admin Only)
+
+|**Method**|**Endpoint**|**Description**|
+|---|---|---|
+|`GET`|`/api/users`|List all registered users.|
+|`PATCH`|`/api/users/{id}/role`|Change a user's permission level.|
+|`PATCH`|`/api/users/{id}/status`|Toggle `is_active` to enable/disable an account.|
+
+---
+
+## Role-Based Access Control (RBAC)
+
+The system enforces three distinct permission levels:
+
+1. **Viewer**: Read-only access to dashboard and personal records.
+    
+2. **Analyst**: All Viewer permissions + ability to **Create** and **Update** records.
+    
+3. **Admin**: Full system access, including **Deleting** records and managing **User** accounts.
+    
+
+---
+
+## Local Setup
+
+1. **Environment**: Copy `.env.example` to `.env` and configure your `DB_URL` and `JWT_SECRET`.
+    
+2. **Database**:
+    
+    Bash
+    
+    ```
     createdb finance_db
     psql -d finance_db -f db/migrations/001_init_schema.sql
     ```
     
-2. start it
-   ```
-   bash
-    go mod tidy
-    go run ./cmd
+3. **Run Server**:
+    
+    Bash
+    
     ```
-    
-## How the roles work
-
-there are 3 tiers of users:
-
-- **viewer**: can basically only look at the dashboard and records.
-    
-- **analyst**: can do viewer stuff + create and update records.
-    
-- **admin**: can do everything, plus delete records and manage other users.
-    
-
-_note: right now, to get the first admin, you literally just pass `"role": "admin"` when hitting the `/api/auth/register` endpoint. obviously don't do this in prod, i need to write a db seeder for it._
+    go mod tidy
+    go run ./cmd/main.go
+    ```
 
 ## Thoughts & notes
 
